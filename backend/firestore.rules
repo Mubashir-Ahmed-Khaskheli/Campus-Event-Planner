@@ -1,0 +1,54 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    
+    function isAuthenticated() {
+      return request.auth != null;
+    }
+
+    // Role check using the users collection. Alternatively, custom claims could be used.
+    function isRole(role) {
+      return isAuthenticated() && get(/databases/$(database)/documents/users/$(request.auth.uid)).data.role == role;
+    }
+
+    match /users/{userId} {
+      allow read: if isAuthenticated() && request.auth.uid == userId;
+      allow create: if isAuthenticated() && request.auth.uid == userId;
+      allow update: if isAuthenticated() && request.auth.uid == userId;
+      allow delete: if false;
+    }
+
+    match /events/{eventId} {
+      allow read: if true; 
+      allow create, update, delete: if isRole('organizer');
+    }
+
+    match /registrations/{registrationId} {
+      allow read: if isRole('organizer') || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow create: if isRole('student') && request.resource.data.userId == request.auth.uid;
+      allow update: if isRole('organizer') || (isAuthenticated() && resource.data.userId == request.auth.uid);
+      allow delete: if isRole('organizer') || (isAuthenticated() && resource.data.userId == request.auth.uid);
+    }
+
+    match /tasks/{taskId} {
+      allow read: if isRole('organizer') || (isAuthenticated() && resource.data.assignedTo == request.auth.uid);
+      allow create, delete: if isRole('organizer');
+      // Volunteer can update status and completedAt
+      allow update: if isRole('organizer') || 
+        (isAuthenticated() && resource.data.assignedTo == request.auth.uid && 
+         request.resource.data.diff(resource.data).affectedKeys().hasOnly(['status', 'completedAt']));
+    }
+
+    match /feedback/{feedbackId} {
+       allow read: if isRole('organizer') || (isAuthenticated() && resource.data.userId == request.auth.uid);
+       allow create: if isRole('student') && request.resource.data.userId == request.auth.uid;
+       allow update, delete: if isAuthenticated() && resource.data.userId == request.auth.uid;
+    }
+
+    match /reports/{reportId} {
+      allow read: if isRole('organizer');
+      allow create: if isAuthenticated() && request.resource.data.userId == request.auth.uid;
+      allow update, delete: if false;
+    }
+  }
+}
